@@ -1,6 +1,6 @@
 ---
 title: elab2ARC
-lastUpdated: 2024-11-28
+lastUpdated: 2026-05-07
 description: elab2ARC is a tool for converting eLabFTW experiment data into ARC format.
 authors: 
   - xiaoran-zhou
@@ -107,3 +107,66 @@ The elab2ARC tool will automatically convert your elabFTW experiments into ARC f
 - add all attachments of the eLabFTW experiment into the dataset folder (yellow)
 - enter name/email/affiliation of the eLabFTW experiment metadata into the isa.assay sheet
 
+## Special case: self-hosted instance behind a VPN
+
+:::note[Advanced Users]
+This sections is only for advanced users, who hosts their own instances of either eLabFTW or DataHub.\\
+It is based on the following github issues:
+- [elab2arc doesn't work with eLabFTW instances in private networks](https://github.com/nfdi4plants/elab2arc/issues/43)
+- [Using eLab2ARC with self-hosted DataHub instance](https://github.com/nfdi4plants/elab2arc/issues/54)
+:::
+
+Self-hosted instances of eLabFTW and DataHub behind a VPN (private networks) needs specific setting concerning the CORS (Cross Origin Rec header to allow exchange with elab2arc.
+
+### eLabFTW behing VPN
+
+In the eLabFTW docker compose file, add/edit the lines related to the CORS headers under the environment parts:
+
+```yaml
+services:
+  elabftw:
+    environment:
+        #######################
+        # NGINX CONFIGURATION #
+        #######################
+        # Update CORS header to allow connection to eLab2ARC
+        # source: https://github.com/nfdi4plants/elab2arc/issues/43
+        - ALLOW_ORIGIN=https://nfdi4plants.github.io
+        - ALLOW_METHODS=GET, OPTIONS
+        - ALLOW_HEADERS=Authorization, Accept, Content-Type, Origin
+```
+
+:::note[Overlap with eLabFTW plugins]
+The CORS header also need to be updated when connecting eLabFTW to plugins (such as OpenClonning). If that's the case, append the options needed for both elab2arc and the relevant plugins.
+:::
+
+### DataHub behing VPN
+
+Similarly, the CORS header should be modified as followed:
+- `ALLOW_ORIGIN = https://nfdi4plants.github.io`
+- `ALLOW_METHODS = GET, POST, OPTIONS`
+- `ALLOW_HEADERS = Authorization, Content-Type, X-Requested-With`
+- `ALLOW_CREDENTIALS = TRUE`
+
+To change the CORS header within the gitlab instance of DataHub can be done via different methods:
+- Edit gitlab.rb: see [following issue](https://gitlab.com/gitlab-org/omnibus-gitlab/-/work_items/5425) for details
+- Edit reverse proxy config which manage access to the DataHub service (see below for example with Traefik label)
+- Host a local CORS proxy (see https://github.com/xiaoranzhou/git-cors-proxy-py)
+
+Here is an example using Traefik middleware to edit the CORS header:
+
+```yaml
+services:
+  datahub:
+    labels:
+      # CORS header middleware
+      # (https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/headers/#cors-headers)
+      - "traefik.http.middlewares.corsheader.headers.accesscontrolallowmethods=GET,POST,OPTIONS"
+      - "traefik.http.middlewares.corsheader.headers.accesscontrolallowheaders=Content-Type,Authorization,X-Requested-With"
+      - "traefik.http.middlewares.corsheader.headers.accesscontrolalloworiginlist=https://nfdi4plants.github.io"
+      - "traefik.http.middlewares.corsheader.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.corsheader.headers.addvaryheader=true"
+      # Add the middleware to the routes
+      # (https://community.traefik.io/t/traefik-not-setting-access-control-allow-origin-header/14961/3)
+      - "traefik.http.routers.datahub.middlewares=corsheader"
+```
